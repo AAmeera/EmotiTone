@@ -42,9 +42,7 @@ def generate_emoticon(emotion):
         # OpenAI API endpoint for DALL-E
         api_url = "https://api.openai.com/v1/images/generations"
 
-        # Replace with your actual API key (better to use environment variables or st.secrets)
-        # api_key = "YOUR_API_KEY_HERE"
-        api_key = st.secrets.get("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", "")
+        api_key = st.secrets.get('FYP_API_KEY')
 
         if not api_key:
             st.warning("OpenAI API key not configured. Using emoji fallback.")
@@ -150,7 +148,6 @@ def main():
             st.success("Audio features extracted")
 
             # For demo purposes, generate features
-            # In a real app, these would come from the audio processing
             features = np.random.rand(128)  # Placeholder features
             process_features(features, model)
 
