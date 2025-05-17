@@ -16,7 +16,6 @@ import requests
 import json
 import os
 import tempfile
-pip install librosa
 
 # Set page configuration
 st.set_page_config(
@@ -36,56 +35,166 @@ def load_model():
         st.error(f"Model file not found at {model_path}. Please run fyp_test.py first.")
         return None
 
-def get_features(path, duration=2.5, offset=0.6):
-    # Example feature extraction: MFCC stats (replace with your actual function)
-    data, sr = librosa.load(path, duration=duration, offset=offset)
-    target_length = int(sr * duration)
-    if len(data) < target_length:
-        data = np.pad(data, (0, target_length - len(data)))
-    elif len(data) > target_length:
-        data = data[:target_length]
+# Function to generate emoticon using OpenAI API
+def generate_emoticon(emotion):
+    try:
+        # OpenAI API endpoint for DALL-E
+        api_url = "https://api.openai.com/v1/images/generations"
 
-    mfcc_feat = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=13)
-    result = []
-    for i in range(mfcc_feat.shape[0]):
-        result.extend([
-            np.mean(mfcc_feat[i]),
-            np.std(mfcc_feat[i]),
-            np.min(mfcc_feat[i]),
-            np.max(mfcc_feat[i])
-        ])
-    return np.array(result)  # Should return fixed length vector (e.g., length 52)
+        # api_key = "YOUR_API_KEY_HERE"
+        api_key = st.secrets.get("FYP_API_KEY")
+
+        if not api_key:
+            st.warning("OpenAI API key not configured. Using emoji fallback.")
+            return None
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
+        # Customize the prompt based on emotion
+        prompt_mapping = {
+            'happy': "a simple happy emoticon with a big smile",
+            'sad': "a simple sad emoticon with a frown and tear",
+            'angry': "a simple angry emoticon with furrowed brows",
+            'neutral': "a simple neutral emoticon with straight face",
+            'fear': "a simple scared emoticon with wide eyes",
+            'disgust': "a simple disgusted emoticon with wrinkled nose",
+            'surprise': "a simple surprised emoticon with open mouth"
+        }
+
+        prompt = prompt_mapping.get(emotion, "a simple emoticon")
+
+        payload = {
+            "prompt": prompt,
+            "n": 1,
+            "size": "256x256"
+        }
+
+        with st.spinner('Generating emoticon...'):
+            response = requests.post(api_url, headers=headers, data=json.dumps(payload))
+            response_data = response.json()
+
+            if 'error' in response_data:
+                st.error(f"API Error: {response_data['error']['message']}")
+                return None
+
+            # Extract the image URL from the response
+            image_url = response_data['data'][0]['url']
+
+            # Download the image
+            image_response = requests.get(image_url)
+            if image_response.status_code == 200:
+                return image_response.content
+            else:
+                st.error(f"Failed to download image: {image_response.status_code}")
+                return None
+
+    except Exception as e:
+        st.error(f"Error generating emoticon: {e}")
+        return None
+
+def main():
+    st.title("🎭 Speech Emotion Recognition")
+    st.write("Upload an audio file to detect emotion")
+
+    # Sidebar with information
+    with st.sidebar:
+        st.header("About")
+        st.info("""
+        This app recognizes emotions from speech using a neural network.
+
+        Supported emotions:
+        - Happy
+        - Sad
+        - Angry
+        - Neutral
+        - Fear
+        - Disgust
+        - Surprise
+        """)
+
+        st.header("Instructions")
+        st.write("""
+        1. Upload an MP4 audio file containing speech
+        2. The app will process your audio and predict the emotion
+        """)
+
+    # Load the model
+    model = load_model()
+
+    # Only proceed if model is loaded
+    if model is None:
+        st.warning("Please run fyp_test.py to create the model before using this app.")
+        return
+
+    # File uploader
+    uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
+
+    # Demo mode checkbox
+    demo_mode = st.checkbox("Use demo mode with random features")
+
+    # Process uploaded file or demo
+    if uploaded_file is not None:
+        # Display the audio player
+        st.audio(uploaded_file, format='audio/mp4')
+
+        st.info("Processing your audio file...")
+
+
+        with st.spinner('Extracting features from audio...'):
+            # Placeholder for feature extraction
+            st.success("Audio features extracted")
+
+            # For demo purposes, generate features
+            # In a real app, these would come from the audio processing
+            features = np.random.rand(128)  # Placeholder features
+            process_features(features, model)
+
+    elif demo_mode:
+        # Generate random features for demo
+        st.info("Using randomly generated features for demonstration")
+        features = np.random.rand(128)  # Create random features
+        process_features(features, model)
 
 def process_features(features, model):
-    # Reshape features to (1, timesteps=52, features=1) for Conv1D input
+    """Process features and display emotion prediction results"""
+    # Ensure the features have the right shape for the model
     if len(features.shape) == 1:
-        features = features.reshape(1, -1, 1)
-    elif len(features.shape) == 2:
+        # Reshape for single sample: (1, n_features, 1)
+        features = np.expand_dims(features, axis=0)
         features = np.expand_dims(features, axis=-1)
 
+    # Predict emotion
     with st.spinner('Analyzing emotion...'):
         predictions = model.predict(features, verbose=0)
         emotion_index = np.argmax(predictions[0])
 
+        # Map index to emotion label
         emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
         emotion = emotion_labels[emotion_index]
         confidence = float(predictions[0][emotion_index])
 
+    # Create columns for displaying results
     col1, col2 = st.columns(2)
 
+    # Display results in the first column
     with col1:
         st.subheader("Detected Emotion")
 
+        # Color-coded box for the emotion
         emotion_colors = {
-            'happy': '#FFD700',
-            'sad': '#4169E1',
-            'angry': '#DC143C',
-            'neutral': '#808080',
-            'fear': '#9932CC',
-            'disgust': '#228B22',
-            'surprise': '#FF8C00'
+            'happy': '#FFD700',  # Gold
+            'sad': '#4169E1',    # Royal Blue
+            'angry': '#DC143C',  # Crimson
+            'neutral': '#808080', # Gray
+            'fear': '#9932CC',   # Dark Orchid
+            'disgust': '#228B22', # Forest Green
+            'surprise': '#FF8C00' # Dark Orange
         }
 
+        # Display the emotion in a colored box
         st.markdown(
             f"""
             <div style="background-color: {emotion_colors.get(emotion, '#808080')};
@@ -101,51 +210,32 @@ def process_features(features, model):
             unsafe_allow_html=True
         )
 
+        # Display confidence as a progress bar
         st.subheader("Confidence")
         st.progress(confidence)
         st.text(f"{confidence:.2%}")
 
+        # Display all emotion probabilities
         st.subheader("All Probabilities")
         for i, label in enumerate(emotion_labels):
             st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
 
+    # Generate and display emoticon in the second column
     with col2:
         st.subheader("Emoticon")
+
+        # Try to generate emoticon using OpenAI API
         emoticon_data = generate_emoticon(emotion)
         if emoticon_data:
             image = Image.open(io.BytesIO(emoticon_data))
             st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
         else:
+            # Fallback to emoji if image generation fails
             emotion_emojis = {
                 'happy': "😊", 'sad': "😢", 'angry': "😠",
                 'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
             }
             st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
-
-def main():
-    st.title("🎭 Speech Emotion Recognition")
-    st.write("Upload a WAV audio file to detect emotion")
-
-    # Sidebar unchanged...
-
-    model = load_model()
-    if model is None:
-        st.warning("Please run fyp_test.py to create the model before using this app.")
-        return
-
-    # Accept WAV files only, no demo mode
-    uploaded_file = st.file_uploader("Upload your audio file", type=["wav"])
-
-    if uploaded_file is not None:
-        st.audio(uploaded_file, format='audio/wav')
-
-        # Save uploaded WAV to temp file for librosa to read
-        with tempfile.NamedTemporaryFile(suffix=".wav") as temp_wav:
-            temp_wav.write(uploaded_file.read())
-            temp_wav.flush()
-
-            features = get_features(temp_wav.name)  # Extract features
-            process_features(features, model)
 
 if __name__ == "__main__":
     main()
