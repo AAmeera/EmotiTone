@@ -16,7 +16,7 @@ import requests
 import json
 import os
 import tempfile
-!pip install librosa
+pip import librosa
 
 # Set page configuration
 st.set_page_config(
