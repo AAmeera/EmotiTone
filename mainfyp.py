@@ -88,7 +88,18 @@ def generate_emoticon(emotion):
     except Exception as e:
         st.error(f"Error generating emoticon: {e}")
         return None
+        
+def process_features(features, model):
+    # Ensure features have shape (batch_size, timesteps, features)
+    if len(features.shape) == 1:
+        # Single sample, shape (52,)
+        features = features.reshape(1, -1, 1)
+    elif len(features.shape) == 2:
+        # Multiple samples, shape (batch_size, 52)
+        features = np.expand_dims(features, axis=-1)
 
+    predictions = model.predict(features, verbose=0)
+    
 def main():
     st.title("🎭 Speech Emotion Recognition")
     st.write("Upload an MP4 audio file to detect emotion")
