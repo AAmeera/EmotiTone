@@ -266,6 +266,9 @@ X_train.shape, X_test.shape, X_val.shape, y_train.shape,y_test.shape,y_val.shape
 #Feature Scaler, prevents features with larger ranges from dominating the learning process
 scaler=StandardScaler()
 X_train=scaler.fit_transform(X_train)
+# to save the fitted scaler for the app
+import joblib
+joblib.dump(scaler, 'scaler.save')
 X_test=scaler.transform(X_test)
 X_val=scaler.transform(X_val)
 X_train.shape,X_test.shape,X_val.shape,y_train.shape,y_test.shape,y_val.shape
