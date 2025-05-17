@@ -138,7 +138,7 @@ def main():
     # Process uploaded file or demo
     if uploaded_file is not None:
         # Display the audio player
-        st.audio(uploaded_file, format='audio/mp4')
+        st.audio(uploaded_file, format='audio/mp3')
 
         st.info("Processing your audio file...")
 
