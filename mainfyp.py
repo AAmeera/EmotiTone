@@ -17,6 +17,7 @@ import json
 import os
 import tempfile
 import librosa
+from feature_extraction import add_noise, shifting, pitching, stretching, extract_features, get_features
 
 # Set page configuration
 st.set_page_config(
