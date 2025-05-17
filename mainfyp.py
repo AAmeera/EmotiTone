@@ -238,7 +238,7 @@ def main():
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
 
-    uploaded_file = st.file_uploader("Upload your audio file", type=["wav])
+    uploaded_file = st.file_uploader("Upload your audio file", type=["wav"])
 
     if uploaded_file is not None:
         st.audio(uploaded_file, format='audio/wav')
