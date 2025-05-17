@@ -216,61 +216,6 @@ def extract_features(data, sr, frame_length=2048, hop_length=512):
 
     return result
 
-def get_features(path, duration=2.5, offset=0.6):
-    # Load with fixed duration to ensure consistency
-    data, sr = librosa.load(path, duration=duration, offset=offset)
-
-    # Ensure consistent audio length by padding if necessary
-    target_length = int(sr * duration)
-    if len(data) < target_length:
-        data = np.pad(data, (0, target_length - len(data)))
-    elif len(data) > target_length:
-        data = data[:target_length]
-
-    # Original audio features
-    aud = extract_features(data, sr)
-    audio = np.array([aud])  # Start with a 2D array with one row
-
-    # Augmentation 1: Add noise
-    noised_audio = add_noise(data, random=True)
-    aud2 = extract_features(noised_audio, sr)
-    audio = np.vstack((audio, [aud2]))
-
-    # Augmentation 2: Pitch shifting
-    pitched_audio = pitching(data, sr, random=True)
-    aud3 = extract_features(pitched_audio, sr)
-    audio = np.vstack((audio, [aud3]))
-
-    # Augmentation 3: Combined pitch shift and noise
-    pitched_audio1 = pitching(data, sr, random=True)
-    pitched_noised_audio = add_noise(pitched_audio1, random=True)
-    aud4 = extract_features(pitched_noised_audio, sr)
-    audio = np.vstack((audio, [aud4]))
-
-    # Augmentation 4: Time stretching
-    stretch_rate = 0.8 + np.random.random() * 0.4
-    stretched_audio = stretching(data, rate=stretch_rate)
-    # Ensure consistent length after stretching
-    if len(stretched_audio) < target_length:
-        stretched_audio = np.pad(stretched_audio, (0, target_length - len(stretched_audio)))
-    elif len(stretched_audio) > target_length:
-        stretched_audio = stretched_audio[:target_length]
-    aud5 = extract_features(stretched_audio, sr)
-    audio = np.vstack((audio, [aud5]))
-
-    # Augmentation 5: Combined stretching and noise
-    stretched_audio2 = stretching(data, rate=stretch_rate)
-    # Ensure consistent length again
-    if len(stretched_audio2) < target_length:
-        stretched_audio2 = np.pad(stretched_audio2, (0, target_length - len(stretched_audio2)))
-    elif len(stretched_audio2) > target_length:
-        stretched_audio2 = stretched_audio2[:target_length]
-    stretched_noised_audio = add_noise(stretched_audio2, random=True)
-    aud6 = extract_features(stretched_noised_audio, sr)
-    audio = np.vstack((audio, [aud6]))
-
-    return audio
-
 X,Y=[],[]
 for path,emotion,index in zip(main_df.File_Path,main_df.Emotion,range(main_df.File_Path.shape[0])):
     features=get_features(path)
