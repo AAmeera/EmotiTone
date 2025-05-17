@@ -96,128 +96,6 @@ def generate_emoticon(emotion):
         st.error(f"Error generating emoticon: {e}")
         return None
 
-# Directly call model to test input shape
-def test_model_input(model):
-    """Test what the model actually expects as input"""
-    try:
-        # Try different input shapes
-        st.subheader("Testing Model Input Requirements")
-        
-        # Try standard input with 256 features
-        features = np.random.rand(256)
-        features_batch = np.expand_dims(features, axis=0)  # (1, 256)
-        
-        # Show exact shape and run prediction
-        st.write(f"Test shape: {features_batch.shape}")
-        
-        # We'll use model.predict directly - this is the bare minimum
-        predictions = model.predict(features_batch, verbose=0)
-        
-        # If we get here, it worked!
-        st.success(f"✅ Model successfully accepted input with shape {features_batch.shape}")
-        st.text(f"Output shape: {predictions.shape}")
-        
-        return features_batch.shape
-    except Exception as e:
-        st.error(f"❌ Error testing model: {str(e)}")
-        return None
-
-def process_features(features, model, input_shape):
-    """Process features and display emotion prediction results"""
-    try:
-        # We'll create features that exactly match what we found works with the model
-        # Start with a completely fresh array of correct size
-        if input_shape:
-            # Extract the feature dimension from the working input shape
-            feature_dim = input_shape[1]
-            
-            # Create fresh features of the correct size
-            features = np.random.rand(feature_dim)
-            features = np.expand_dims(features, axis=0)  # Add batch dimension
-            
-            st.text(f"Created fresh features with shape: {features.shape}")
-        else:
-            # If we don't know the input shape, use what we're given
-            # But still ensure it's a batch with 256 features
-            features = np.random.rand(256)
-            features = np.expand_dims(features, axis=0)  # (1, 256)
-            
-            st.text(f"Using default features with shape: {features.shape}")
-        
-        # Predict emotion
-        with st.spinner('Analyzing emotion...'):
-            predictions = model.predict(features, verbose=0)
-            emotion_index = np.argmax(predictions[0])
-
-            # Map index to emotion label
-            emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
-            emotion = emotion_labels[emotion_index]
-            confidence = float(predictions[0][emotion_index])
-
-        # Create columns for displaying results
-        col1, col2 = st.columns(2)
-
-        # Display results in the first column
-        with col1:
-            st.subheader("Detected Emotion")
-
-            # Color-coded box for the emotion
-            emotion_colors = {
-                'happy': '#FFD700',  # Gold
-                'sad': '#4169E1',    # Royal Blue
-                'angry': '#DC143C',  # Crimson
-                'neutral': '#808080', # Gray
-                'fear': '#9932CC',   # Dark Orchid
-                'disgust': '#228B22', # Forest Green
-                'surprise': '#FF8C00' # Dark Orange
-            }
-
-            # Display the emotion in a colored box
-            st.markdown(
-                f"""
-                <div style="background-color: {emotion_colors.get(emotion, '#808080')};
-                          padding: 20px;
-                          border-radius: 10px;
-                          text-align: center;
-                          color: white;
-                          font-size: 24px;
-                          font-weight: bold;">
-                    {emotion.upper()}
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-
-            # Display confidence as a progress bar
-            st.subheader("Confidence")
-            st.progress(confidence)
-            st.text(f"{confidence:.2%}")
-
-            # Display all emotion probabilities
-            st.subheader("All Probabilities")
-            for i, label in enumerate(emotion_labels):
-                st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
-
-        # Generate and display emoticon in the second column
-        with col2:
-            st.subheader("Emoticon")
-
-            # Try to generate emoticon using OpenAI API
-            emoticon_data = generate_emoticon(emotion)
-            if emoticon_data:
-                image = Image.open(io.BytesIO(emoticon_data))
-                st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
-            else:
-                # Fallback to emoji if image generation fails
-                emotion_emojis = {
-                    'happy': "😊", 'sad': "😢", 'angry': "😠",
-                    'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
-                }
-                st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
-    
-    except Exception as e:
-        st.error(f"Error processing features: {str(e)}")
-
 def main():
     st.title("🎭 Speech Emotion Recognition")
     st.write("Upload an audio file to detect emotion")
@@ -252,17 +130,19 @@ def main():
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
 
-    # Test model to find working input shape
-    working_shape = test_model_input(model)
-
     # File uploader
     uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
 
+    # Demo mode checkbox
+    demo_mode = st.checkbox("Use demo mode with random features")
+
+    # Process uploaded file or demo
     if uploaded_file is not None:
         # Display the audio player
         st.audio(uploaded_file, format='audio/mp4')
 
         st.info("Processing your audio file...")
+
 
         with st.spinner('Extracting features from audio...'):
             # Placeholder for feature extraction
@@ -270,12 +150,93 @@ def main():
 
             # For demo purposes, generate features
             # In a real app, these would come from the audio processing
-            features = np.random.rand(256)  # Make exactly 256 features
-            process_features(features, model, working_shape)
-    else:
-        # Always generate random features (simplified demo)
-        features = np.random.rand(256)  # Make exactly 256 features
-        process_features(features, model, working_shape)
+            features = np.random.rand(128)  # Placeholder features
+            process_features(features, model)
+
+    elif demo_mode:
+        # Generate random features for demo
+        st.info("Using randomly generated features for demonstration")
+        features = np.random.rand(128)  # Create random features
+        process_features(features, model)
+
+def process_features(features, model):
+    """Process features and display emotion prediction results"""
+    # Ensure the features have the right shape for the model
+    if len(features.shape) == 1:
+        # Reshape for single sample: (1, n_features, 1)
+        features = np.expand_dims(features, axis=0)
+        features = np.expand_dims(features, axis=-1)
+
+    # Predict emotion
+    with st.spinner('Analyzing emotion...'):
+        predictions = model.predict(features, verbose=0)
+        emotion_index = np.argmax(predictions[0])
+
+        # Map index to emotion label
+        emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
+        emotion = emotion_labels[emotion_index]
+        confidence = float(predictions[0][emotion_index])
+
+    # Create columns for displaying results
+    col1, col2 = st.columns(2)
+
+    # Display results in the first column
+    with col1:
+        st.subheader("Detected Emotion")
+
+        # Color-coded box for the emotion
+        emotion_colors = {
+            'happy': '#FFD700',  # Gold
+            'sad': '#4169E1',    # Royal Blue
+            'angry': '#DC143C',  # Crimson
+            'neutral': '#808080', # Gray
+            'fear': '#9932CC',   # Dark Orchid
+            'disgust': '#228B22', # Forest Green
+            'surprise': '#FF8C00' # Dark Orange
+        }
+
+        # Display the emotion in a colored box
+        st.markdown(
+            f"""
+            <div style="background-color: {emotion_colors.get(emotion, '#808080')};
+                      padding: 20px;
+                      border-radius: 10px;
+                      text-align: center;
+                      color: white;
+                      font-size: 24px;
+                      font-weight: bold;">
+                {emotion.upper()}
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Display confidence as a progress bar
+        st.subheader("Confidence")
+        st.progress(confidence)
+        st.text(f"{confidence:.2%}")
+
+        # Display all emotion probabilities
+        st.subheader("All Probabilities")
+        for i, label in enumerate(emotion_labels):
+            st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
+
+    # Generate and display emoticon in the second column
+    with col2:
+        st.subheader("Emoticon")
+
+        # Try to generate emoticon using OpenAI API
+        emoticon_data = generate_emoticon(emotion)
+        if emoticon_data:
+            image = Image.open(io.BytesIO(emoticon_data))
+            st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
+        else:
+            # Fallback to emoji if image generation fails
+            emotion_emojis = {
+                'happy': "😊", 'sad': "😢", 'angry': "😠",
+                'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
+            }
+            st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
