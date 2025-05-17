@@ -117,7 +117,7 @@ def main():
 
         st.header("Instructions")
         st.write("""
-        1. Upload an MP3 audio file containing speech
+        1. Upload an MP4 audio file containing speech
         2. The app will process your audio and predict the emotion
         """)
 
@@ -130,7 +130,7 @@ def main():
         return
 
     # File uploader
-    uploaded_file = st.file_uploader("Upload your audio file", type=['mp3'])
+    uploaded_file = st.file_uploader("Upload your audio file", type=['mp4'])
 
     # Demo mode checkbox
     demo_mode = st.checkbox("Use demo mode with random features")
@@ -138,7 +138,7 @@ def main():
     # Process uploaded file or demo
     if uploaded_file is not None:
         # Display the audio player
-        st.audio(uploaded_file, format='audio/mp3')
+        st.audio(uploaded_file, format='audio/mp4')
 
         st.info("Processing your audio file...")
 
