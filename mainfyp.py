@@ -103,7 +103,7 @@ def main():
     with st.sidebar:
         st.header("About")
         st.info("""
-        This app recognizes emotions from speech using a neural network.
+        This app recognizes emotions from speech using convolutional neural network.
 
         Supported emotions:
         - Happy
@@ -117,7 +117,7 @@ def main():
 
         st.header("Instructions")
         st.write("""
-        1. Upload an MP4 audio file containing speech
+        1. Upload an MP3 audio file containing speech
         2. The app will process your audio and predict the emotion
         """)
 
@@ -130,7 +130,7 @@ def main():
         return
 
     # File uploader
-    uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
+    uploaded_file = st.file_uploader("Upload your audio file", type=["mp3"])
 
     # Demo mode checkbox
     demo_mode = st.checkbox("Use demo mode with random features")
