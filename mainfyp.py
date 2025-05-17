@@ -98,7 +98,7 @@ def add_noise(data, random=True):
 
 def pitching(data, sr, random=True):
     pitch_factor = np.random.uniform(-2, 2) if random else 0
-    return librosa.effects.pitch_shift(data, sr, n_steps=pitch_factor)
+    return librosa.effects.pitch_shift(data, sr=sr, n_steps=pitch_factor)
 
 def stretching(data, rate=1.0):
     return librosa.effects.time_stretch(data, rate)
