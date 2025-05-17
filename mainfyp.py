@@ -229,7 +229,7 @@ def main():
         """)
         st.header("Instructions")
         st.write("""
-        1. Upload an MP4 audio file containing speech
+        1. Upload a WAV audio file containing speech
         2. The app will process your audio and predict the emotion
         """)
 
@@ -238,12 +238,12 @@ def main():
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
 
-    uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
+    uploaded_file = st.file_uploader("Upload your audio file", type=["wav])
 
     if uploaded_file is not None:
-        st.audio(uploaded_file, format='audio/mp4')
+        st.audio(uploaded_file, format='audio/wav')
 
-        with tempfile.NamedTemporaryFile(suffix=".mp4") as temp_audio:
+        with tempfile.NamedTemporaryFile(suffix=".wav") as temp_audio:
             temp_audio.write(uploaded_file.read())
             temp_audio.flush()
 
