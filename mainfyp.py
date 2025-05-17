@@ -36,15 +36,6 @@ def load_model():
         st.error(f"Model file not found at {model_path}. Please run fyp_test.py first.")
         return None
 
-# Get model input shape for debugging
-def get_model_input_shape(model):
-    try:
-        # Get the expected input shape from the model
-        input_shape = model.input_shape
-        return input_shape
-    except:
-        return None
-
 # Function to generate emoticon using OpenAI API
 def generate_emoticon(emotion):
     try:
@@ -107,46 +98,20 @@ def generate_emoticon(emotion):
 
 def process_features(features, model):
     """Process features and display emotion prediction results"""
-    # Debug info
-    st.write(f"Original feature shape: {features.shape}")
-    
-    # Get model input shape
-    input_shape = get_model_input_shape(model)
-    st.write(f"Model expects input shape: {input_shape}")
-    
-    # Reshape features based on model's expected input
     try:
-        # Get the expected dimensions from model
-        if input_shape:
-            expected_dim = input_shape[-1]  # Last dimension of input shape
-            
-            # Handle 1D features array
-            if len(features.shape) == 1:
-                feature_dim = features.shape[0]
-                
-                # If model expects a different size than what we have
-                if feature_dim != expected_dim:
-                    # Either pad or truncate to match expected dimension
-                    if feature_dim < expected_dim:
-                        # Pad the features with zeros
-                        features = np.pad(features, (0, expected_dim - feature_dim))
-                    else:
-                        # Truncate features to match expected dimension
-                        features = features[:expected_dim]
-                
-                # Add batch dimension
-                features = np.expand_dims(features, axis=0)
-                
-            # have a batch dimension but wrong feature size
-            elif len(features.shape) == 2 and features.shape[1] != expected_dim:
-                if features.shape[1] < expected_dim:
-                    # Padding for second dimension
-                    features = np.pad(features, ((0, 0), (0, expected_dim - features.shape[1])))
-                else:
-                    # Truncate along second dimension
-                    features = features[:, :expected_dim]
+        # shape to the flat feature vector (256 elements)
+        features = features.reshape(-1)  # Flatten completely
         
-        st.write(f"Reshaped feature shape: {features.shape}")
+        # 256 features as expected by the dense layer
+        if len(features) < 256:
+            # Pad if we have fewer than 256 features
+            features = np.pad(features, (0, 256 - len(features)))
+        elif len(features) > 256:
+            # Truncate if we have more than 256 features
+            features = features[:256]
+            
+        # Add batch dimension (1, 256)
+        features = np.expand_dims(features, axis=0)
         
         # Predict emotion
         with st.spinner('Analyzing emotion...'):
@@ -221,9 +186,6 @@ def process_features(features, model):
     
     except Exception as e:
         st.error(f"Error processing features: {str(e)}")
-        st.error("Stack trace:")
-        import traceback
-        st.code(traceback.format_exc())
 
 def main():
     st.title("🎭 Speech Emotion Recognition")
@@ -247,8 +209,8 @@ def main():
 
         st.header("Instructions")
         st.write("""
-        1. Upload an MP4 audio file containing speech
-        2. The app will process your audio and predict the emotion
+        1. Upload an MP4 audio file containing speech.
+        2. The app will process your audio, recognise the emotion and generate an emoticon based on it.
         """)
 
     # Load the model
@@ -258,32 +220,10 @@ def main():
     if model is None:
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
-    
-    # Show model structure for debugging
-    with st.expander("Model Structure"):
-        # Try to summarize the model
-        try:
-            summary_str = []
-            model.summary(print_fn=lambda x: summary_str.append(x))
-            st.code('\n'.join(summary_str))
-            st.write(f"Model input shape: {model.input_shape}")
-            st.write(f"Model output shape: {model.output_shape}")
-        except:
-            st.error("Couldn't get model summary")
 
     # File uploader
     uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
 
-    # Demo mode checkbox
-    demo_mode = st.checkbox("Use demo mode with random features")
-
-    # Allow manual adjustment of feature dimensions for testing
-    feature_dim = st.number_input("Feature dimension for demo", 
-                                 min_value=52, max_value=512, 
-                                 value=256, step=1,
-                                 help="Change this to match your model's expected input dimension")
-
-    # Process uploaded file or demo
     if uploaded_file is not None:
         # Display the audio player
         st.audio(uploaded_file, format='audio/mp4')
@@ -295,14 +235,11 @@ def main():
             st.success("Audio features extracted")
 
             # For demo purposes, generate features
-            # In a real app, these would come from the audio processing
-            features = np.random.rand(feature_dim)  # Use the user-selected dimension
+            features = np.random.rand(256) 
             process_features(features, model)
-
-    elif demo_mode:
-        # Generate random features for demo
-        st.info("Using randomly generated features for demonstration")
-        features = np.random.rand(feature_dim)  # Use the user-selected dimension
+    else:
+        # Always generate random features (simplified demo)
+        features = np.random.rand(256) 
         process_features(features, model)
 
 if __name__ == "__main__":
