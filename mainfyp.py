@@ -17,6 +17,7 @@ import requests
 import json
 import os
 import tempfile
+import pydub
 from pydub import AudioSegment
 
 # Your existing feature extraction functions assumed imported here:
