@@ -101,7 +101,7 @@ def pitching(data, sr, random=True):
     return librosa.effects.pitch_shift(data, sr=sr, n_steps=pitch_factor)
 
 def stretching(data, rate=1.0):
-    return librosa.effects.time_stretch(data, rate)
+    return librosa.effects.time_stretch(data, rate=rate)
 
 # Your original extract_features function
 def extract_features(data, sr, frame_length=2048, hop_length=512):
