@@ -16,6 +16,7 @@ import requests
 import json
 import os
 import tempfile
+import librosa
 
 # Set page configuration
 st.set_page_config(
@@ -24,7 +25,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Check if model exists and load it
+# Load model with caching
 @st.cache_resource
 def load_model():
     model_path = "./res_model.keras"
@@ -35,15 +36,11 @@ def load_model():
         st.error(f"Model file not found at {model_path}. Please run fyp_test.py first.")
         return None
 
-# Function to generate emoticon using OpenAI API
+# Generate emoticon using OpenAI API
 def generate_emoticon(emotion):
     try:
-        # OpenAI API endpoint for DALL-E
         api_url = "https://api.openai.com/v1/images/generations"
-
-        # api_key = "YOUR_API_KEY_HERE"
         api_key = st.secrets.get("FYP_API_KEY")
-
         if not api_key:
             st.warning("OpenAI API key not configured. Using emoji fallback.")
             return None
@@ -53,7 +50,6 @@ def generate_emoticon(emotion):
             "Authorization": f"Bearer {api_key}"
         }
 
-        # Customize the prompt based on emotion
         prompt_mapping = {
             'happy': "a simple happy emoticon with a big smile",
             'sad': "a simple sad emoticon with a frown and tear",
@@ -80,10 +76,7 @@ def generate_emoticon(emotion):
                 st.error(f"API Error: {response_data['error']['message']}")
                 return None
 
-            # Extract the image URL from the response
             image_url = response_data['data'][0]['url']
-
-            # Download the image
             image_response = requests.get(image_url)
             if image_response.status_code == 200:
                 return image_response.content
@@ -95,11 +88,131 @@ def generate_emoticon(emotion):
         st.error(f"Error generating emoticon: {e}")
         return None
 
+# Your original augmentation functions (add_noise, pitching, stretching) should be defined or imported here
+# For example:
+def add_noise(data, random=True):
+    # Simple noise addition example
+    noise_amp = 0.005 * np.random.uniform() if random else 0.005
+    noise = noise_amp * np.random.normal(size=data.shape[0])
+    return data + noise
+
+def pitching(data, sr, random=True):
+    pitch_factor = np.random.uniform(-2, 2) if random else 0
+    return librosa.effects.pitch_shift(data, sr, n_steps=pitch_factor)
+
+def stretching(data, rate=1.0):
+    return librosa.effects.time_stretch(data, rate)
+
+# Your original extract_features function
+def extract_features(data, sr, frame_length=2048, hop_length=512):
+    result = np.array([])
+    mfcc_feat = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=13, hop_length=hop_length, n_fft=frame_length)
+    for i in range(mfcc_feat.shape[0]):
+        result = np.hstack((result,
+                           np.mean(mfcc_feat[i]),
+                           np.std(mfcc_feat[i]),
+                           np.min(mfcc_feat[i]),
+                           np.max(mfcc_feat[i])))
+    return result
+
+# Your original get_features function with augmentations
+def get_features(path, duration=2.5, offset=0.6):
+    data, sr = librosa.load(path, duration=duration, offset=offset)
+    target_length = int(sr * duration)
+    if len(data) < target_length:
+        data = np.pad(data, (0, target_length - len(data)))
+    elif len(data) > target_length:
+        data = data[:target_length]
+
+    aud = extract_features(data, sr)
+    audio = np.array([aud])
+
+    noised_audio = add_noise(data, random=True)
+    aud2 = extract_features(noised_audio, sr)
+    audio = np.vstack((audio, [aud2]))
+
+    pitched_audio = pitching(data, sr, random=True)
+    aud3 = extract_features(pitched_audio, sr)
+    audio = np.vstack((audio, [aud3]))
+
+    pitched_audio1 = pitching(data, sr, random=True)
+    pitched_noised_audio = add_noise(pitched_audio1, random=True)
+    aud4 = extract_features(pitched_noised_audio, sr)
+    audio = np.vstack((audio, [aud4]))
+
+    stretch_rate = 0.8 + np.random.random() * 0.4
+    stretched_audio = stretching(data, rate=stretch_rate)
+    if len(stretched_audio) < target_length:
+        stretched_audio = np.pad(stretched_audio, (0, target_length - len(stretched_audio)))
+    elif len(stretched_audio) > target_length:
+        stretched_audio = stretched_audio[:target_length]
+    aud5 = extract_features(stretched_audio, sr)
+    audio = np.vstack((audio, [aud5]))
+
+    stretched_audio2 = stretching(data, rate=stretch_rate)
+    if len(stretched_audio2) < target_length:
+        stretched_audio2 = np.pad(stretched_audio2, (0, target_length - len(stretched_audio2)))
+    elif len(stretched_audio2) > target_length:
+        stretched_audio2 = stretched_audio2[:target_length]
+    stretched_noised_audio = add_noise(stretched_audio2, random=True)
+    aud6 = extract_features(stretched_noised_audio, sr)
+    audio = np.vstack((audio, [aud6]))
+
+    return audio
+
+def process_features(features, model):
+    # Reshape features to (batch_size, timesteps, 1)
+    if len(features.shape) == 1:
+        features = features.reshape(1, -1, 1)
+    elif len(features.shape) == 2:
+        features = np.expand_dims(features, axis=-1)
+
+    with st.spinner('Analyzing emotion...'):
+        predictions = model.predict(features, verbose=0)
+        emotion_index = np.argmax(predictions[0])
+        emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
+        emotion = emotion_labels[emotion_index]
+        confidence = float(predictions[0][emotion_index])
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Detected Emotion")
+        emotion_colors = {
+            'happy': '#FFD700', 'sad': '#4169E1', 'angry': '#DC143C',
+            'neutral': '#808080', 'fear': '#9932CC', 'disgust': '#228B22', 'surprise': '#FF8C00'
+        }
+        st.markdown(
+            f"""
+            <div style="background-color: {emotion_colors.get(emotion, '#808080')};
+                      padding: 20px; border-radius: 10px; text-align: center;
+                      color: white; font-size: 24px; font-weight: bold;">
+                {emotion.upper()}
+            </div>
+            """, unsafe_allow_html=True)
+        st.subheader("Confidence")
+        st.progress(confidence)
+        st.text(f"{confidence:.2%}")
+        st.subheader("All Probabilities")
+        for i, label in enumerate(emotion_labels):
+            st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
+
+    with col2:
+        st.subheader("Emoticon")
+        emoticon_data = generate_emoticon(emotion)
+        if emoticon_data:
+            image = Image.open(io.BytesIO(emoticon_data))
+            st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
+        else:
+            emotion_emojis = {
+                'happy': "😊", 'sad': "😢", 'angry': "😠",
+                'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
+            }
+            st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
+
 def main():
     st.title("🎭 Speech Emotion Recognition")
-    st.write("Upload an audio file to detect emotion")
+    st.write("Upload an MP4 audio file to detect emotion")
 
-    # Sidebar with information
     with st.sidebar:
         st.header("About")
         st.info("""
@@ -114,128 +227,28 @@ def main():
         - Disgust
         - Surprise
         """)
-
         st.header("Instructions")
         st.write("""
         1. Upload an MP4 audio file containing speech
         2. The app will process your audio and predict the emotion
         """)
 
-    # Load the model
     model = load_model()
-
-    # Only proceed if model is loaded
     if model is None:
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
 
-    # File uploader
     uploaded_file = st.file_uploader("Upload your audio file", type=["mp4"])
 
-    # Demo mode checkbox
-    demo_mode = st.checkbox("Use demo mode with random features")
-
-    # Process uploaded file or demo
     if uploaded_file is not None:
-        # Display the audio player
         st.audio(uploaded_file, format='audio/mp4')
 
-        st.info("Processing your audio file...")
+        with tempfile.NamedTemporaryFile(suffix=".mp4") as temp_audio:
+            temp_audio.write(uploaded_file.read())
+            temp_audio.flush()
 
-
-        with st.spinner('Extracting features from audio...'):
-            # Placeholder for feature extraction
-            st.success("Audio features extracted")
-
-            # For demo purposes, generate features
-            # In a real app, these would come from the audio processing
-            features = np.random.rand(128)  # Placeholder features
+            features = get_features(temp_audio.name)
             process_features(features, model)
-
-    elif demo_mode:
-        # Generate random features for demo
-        st.info("Using randomly generated features for demonstration")
-        features = np.random.rand(128)  # Create random features
-        process_features(features, model)
-
-def process_features(features, model):
-    """Process features and display emotion prediction results"""
-    # Ensure the features have the right shape for the model
-    if len(features.shape) == 1:
-        # Reshape for single sample: (1, n_features, 1)
-        features = np.expand_dims(features, axis=0)
-        features = np.expand_dims(features, axis=-1)
-
-    # Predict emotion
-    with st.spinner('Analyzing emotion...'):
-        predictions = model.predict(features, verbose=0)
-        emotion_index = np.argmax(predictions[0])
-
-        # Map index to emotion label
-        emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
-        emotion = emotion_labels[emotion_index]
-        confidence = float(predictions[0][emotion_index])
-
-    # Create columns for displaying results
-    col1, col2 = st.columns(2)
-
-    # Display results in the first column
-    with col1:
-        st.subheader("Detected Emotion")
-
-        # Color-coded box for the emotion
-        emotion_colors = {
-            'happy': '#FFD700',  # Gold
-            'sad': '#4169E1',    # Royal Blue
-            'angry': '#DC143C',  # Crimson
-            'neutral': '#808080', # Gray
-            'fear': '#9932CC',   # Dark Orchid
-            'disgust': '#228B22', # Forest Green
-            'surprise': '#FF8C00' # Dark Orange
-        }
-
-        # Display the emotion in a colored box
-        st.markdown(
-            f"""
-            <div style="background-color: {emotion_colors.get(emotion, '#808080')};
-                      padding: 20px;
-                      border-radius: 10px;
-                      text-align: center;
-                      color: white;
-                      font-size: 24px;
-                      font-weight: bold;">
-                {emotion.upper()}
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        # Display confidence as a progress bar
-        st.subheader("Confidence")
-        st.progress(confidence)
-        st.text(f"{confidence:.2%}")
-
-        # Display all emotion probabilities
-        st.subheader("All Probabilities")
-        for i, label in enumerate(emotion_labels):
-            st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
-
-    # Generate and display emoticon in the second column
-    with col2:
-        st.subheader("Emoticon")
-
-        # Try to generate emoticon using OpenAI API
-        emoticon_data = generate_emoticon(emotion)
-        if emoticon_data:
-            image = Image.open(io.BytesIO(emoticon_data))
-            st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
-        else:
-            # Fallback to emoji if image generation fails
-            emotion_emojis = {
-                'happy': "😊", 'sad': "😢", 'angry': "😠",
-                'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
-            }
-            st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
