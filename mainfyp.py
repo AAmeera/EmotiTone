@@ -130,7 +130,7 @@ def main():
         return
 
     # File uploader
-    uploaded_file = st.file_uploader("Upload your audio file", type=['.mp3'])
+    uploaded_file = st.file_uploader("Upload your audio file", type=['mp3'])
 
     # Demo mode checkbox
     demo_mode = st.checkbox("Use demo mode with random features")
