@@ -27,11 +27,31 @@ import base64
 
 # Try to import from feature_extraction file - this is the key fix
 try:
-    from feature_extraction import extract_features, get_features
+    from feature_extraction import add_noise, shifting, pitching, stretching, extract_features, get_features
     print("Successfully imported from feature_extraction.py")
 except ImportError:
     print("Warning: Could not import from feature_extraction.py")
     # Fallback to local definitions that match the training
+    def add_noise(data, random=False, rate=0.035, threshold=0.075):
+        if random:
+            rate = np.random.random() * threshold
+        noise = rate * np.random.uniform() * np.amax(data)
+        augmented_data = data + noise * np.random.normal(size=data.shape[0])
+        return augmented_data
+
+    def shifting(data, rate=1000):
+        augmented_data = int(np.random.uniform(low=-5, high=5) * rate)
+        augmented_data = np.roll(data, augmented_data)
+        return augmented_data
+
+    def pitching(data, sr, pitch_factor=0.7, random=False):
+        if random:
+            pitch_factor = np.random.random() * pitch_factor
+        return librosa.effects.pitch_shift(y=data, sr=sr, n_steps=pitch_factor)
+
+    def stretching(data, rate=0.8):
+        return librosa.effects.time_stretch(y=data, rate=rate)
+
     def extract_features(data, sr, frame_length=2048, hop_length=512):
         """Extract features matching the training process"""
         result = np.array([])
