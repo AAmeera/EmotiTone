@@ -18,7 +18,46 @@ import os
 import tempfile
 import librosa
 import joblib
-from feature_extraction import add_noise, shifting, pitching, stretching, extract_features, get_features
+import datetime
+import pandas as pd
+from google.colab import files
+from google.colab.output import eval_js
+import IPython.display as display
+import base64
+
+# Try to import from feature_extraction file - this is the key fix
+try:
+    from feature_extraction import extract_features, get_features
+    print("Successfully imported from feature_extraction.py")
+except ImportError:
+    print("Warning: Could not import from feature_extraction.py")
+    # Fallback to local definitions that match the training
+    def extract_features(data, sr, frame_length=2048, hop_length=512):
+        """Extract features matching the training process"""
+        result = np.array([])
+        mfcc_feat = librosa.feature.mfcc(y=data, sr=sr, n_mfcc=13, hop_length=hop_length, n_fft=frame_length)
+        for i in range(mfcc_feat.shape[0]):
+            result = np.hstack((result,
+                               np.mean(mfcc_feat[i]),
+                               np.std(mfcc_feat[i]),
+                               np.min(mfcc_feat[i]),
+                               np.max(mfcc_feat[i])))
+        return result
+
+    def get_features(path, duration=2.5, offset=0.6):
+        """Get features with augmentation - but for single prediction, we'll use just original"""
+        data, sr = librosa.load(path, duration=duration, offset=offset)
+        
+        # Ensure consistent audio length by padding if necessary
+        target_length = int(sr * duration)
+        if len(data) < target_length:
+            data = np.pad(data, (0, target_length - len(data)))
+        elif len(data) > target_length:
+            data = data[:target_length]
+        
+        # For single prediction, return just the original audio features
+        aud = extract_features(data, sr)
+        return np.array([aud])  # Return as 2D array with one row
 
 # Set page configuration
 st.set_page_config(
@@ -38,39 +77,50 @@ def load_model():
         st.error(f"Model file not found at {model_path}. Please run fyp_test.py first.")
         return None
 
-# Generate emoticon using OpenAI API
-def generate_emoticon(emotion):
+# Function to generate emoji pictures using OpenAI API
+def generate_emoji_picture(emotion):
     try:
+        # OpenAI API endpoint for DALL-E
         api_url = "https://api.openai.com/v1/images/generations"
-        api_key = st.secrets.get("FYP_API_KEY")
+
+        # Get API key from Streamlit secrets
+        api_key = os.environ.get("FYP_API_KEY")  # First try environment variable
         if not api_key:
-            st.warning("OpenAI API key not configured. Using emoji fallback.")
-            return None
+            try:
+                api_key = st.secrets["FYP_API_KEY"]  # Then try streamlit secrets
+            except:
+                st.warning("OpenAI API key not configured. Using emoji fallback.")
+                return None
 
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {api_key}"
         }
 
+        # Customize prompt based on emotion - specifically for emoji-style images
         prompt_mapping = {
-            'happy': "a simple happy emoticon with a big smile",
-            'sad': "a simple sad emoticon with a frown and tear",
-            'angry': "a simple angry emoticon with furrowed brows",
-            'neutral': "a simple neutral emoticon with straight face",
-            'fear': "a simple scared emoticon with wide eyes",
-            'disgust': "a simple disgusted emoticon with wrinkled nose",
-            'surprise': "a simple surprised emoticon with open mouth"
+            'happy': "a cute yellow emoji face with a big happy smile and cheerful eyes, 3D style, bright and colorful",
+            'sad': "a cute yellow emoji face with a sad expression, droopy eyes and a frown, maybe a single tear, 3D style",
+            'angry': "a cute yellow emoji face with angry red expression, furrowed eyebrows, grumpy mouth, 3D style",
+            'neutral': "a cute yellow emoji face with neutral expression, straight line mouth, calm eyes, 3D style",
+            'fear': "a cute yellow emoji face with scared wide eyes, open mouth in surprise/fear, worried expression, 3D style",
+            'disgust': "a cute yellow emoji face with disgusted expression, wrinkled nose, tongue out, green tint, 3D style",
+            'surprise': "a cute yellow emoji face with very surprised expression, wide open eyes and mouth, shocked look, 3D style"
         }
 
-        prompt = prompt_mapping.get(emotion, "a simple emoticon")
+        prompt = prompt_mapping.get(emotion, "a cute yellow emoji face with simple expression, 3D style")
+        # Add additional styling instructions
+        prompt += ", clean white background, high quality, cartoon style, smooth rendering"
 
         payload = {
             "prompt": prompt,
             "n": 1,
-            "size": "256x256"
+            "size": "256x256",
+            "quality": "standard",
+            "style": "vivid"
         }
 
-        with st.spinner('Generating emoticon...'):
+        with st.spinner('Generating emoji picture...'):
             response = requests.post(api_url, headers=headers, data=json.dumps(payload))
             response_data = response.json()
 
@@ -78,6 +128,7 @@ def generate_emoticon(emotion):
                 st.error(f"API Error: {response_data['error']['message']}")
                 return None
 
+            # Extract image URL and download
             image_url = response_data['data'][0]['url']
             image_response = requests.get(image_url)
             if image_response.status_code == 200:
@@ -87,101 +138,274 @@ def generate_emoticon(emotion):
                 return None
 
     except Exception as e:
-        st.error(f"Error generating emoticon: {e}")
+        st.error(f"Error generating emoji picture: {e}")
         return None
 
-def process_features(features, model):
-    # Reshape features to (batch_size, timesteps, 1)
-    if len(features.shape) == 1:
-        features = features.reshape(1, -1, 1)
-    elif len(features.shape) == 2:
-        features = np.expand_dims(features, axis=-1)
+def process_audio_file(audio_path, model, scaler=None):
+    """Process audio file and predict emotion using the same feature extraction as training"""
+    try:
+        # Use get_features function (same as training) - this returns a 2D array
+        features = get_features(audio_path)
+        
+        # For prediction, we'll use the first row (original audio without augmentation)
+        # This matches the training process but without augmentation for single prediction
+        single_feature = features[0].reshape(1, -1)  # Reshape to (1, n_features)
 
-    with st.spinner('Analyzing emotion...'):
-        predictions = model.predict(features, verbose=0)
+        # Apply scaling if scaler is provided
+        if scaler:
+            single_feature = scaler.transform(single_feature)
+
+        # Reshape for model input (add channel dimension for CNN)
+        single_feature = np.expand_dims(single_feature, axis=-1)
+
+        # Predict emotion
+        predictions = model.predict(single_feature, verbose=0)
         emotion_index = np.argmax(predictions[0])
+
+        # Map index to emotion label (same order as training)
         emotion_labels = ['neutral', 'surprise', 'happy', 'fear', 'sad', 'angry', 'disgust']
         emotion = emotion_labels[emotion_index]
         confidence = float(predictions[0][emotion_index])
 
+        return emotion, confidence, predictions[0], emotion_labels
+
+    except Exception as e:
+        st.error(f"Error processing audio: {e}")
+        return None, 0, None, None
+
+def display_results(emotion, confidence, all_probabilities, emotion_labels):
+    """Display emotion detection results"""
     col1, col2 = st.columns(2)
+
+    # Display results in the first column
     with col1:
         st.subheader("Detected Emotion")
+
+        # Color-coded box for the emotion
         emotion_colors = {
-            'happy': '#FFD700', 'sad': '#4169E1', 'angry': '#DC143C',
-            'neutral': '#808080', 'fear': '#9932CC', 'disgust': '#228B22', 'surprise': '#FF8C00'
+            'happy': '#FFD700',  # Gold
+            'sad': '#4169E1',    # Royal Blue
+            'angry': '#DC143C',  # Crimson
+            'neutral': '#808080', # Gray
+            'fear': '#9932CC',   # Dark Orchid
+            'disgust': '#228B22', # Forest Green
+            'surprise': '#FF8C00' # Dark Orange
         }
+
+        # Display the emotion in a colored box
         st.markdown(
             f"""
             <div style="background-color: {emotion_colors.get(emotion, '#808080')};
-                      padding: 20px; border-radius: 10px; text-align: center;
-                      color: white; font-size: 24px; font-weight: bold;">
+                      padding: 20px;
+                      border-radius: 10px;
+                      text-align: center;
+                      color: white;
+                      font-size: 24px;
+                      font-weight: bold;">
                 {emotion.upper()}
             </div>
-            """, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Display confidence as a progress bar
         st.subheader("Confidence")
         st.progress(confidence)
         st.text(f"{confidence:.2%}")
+
+        # Display all emotion probabilities
         st.subheader("All Probabilities")
         for i, label in enumerate(emotion_labels):
-            st.text(f"{label.capitalize()}: {predictions[0][i]:.4f}")
+            st.text(f"{label.capitalize()}: {all_probabilities[i]:.4f}")
 
+    # Generate and display emoji picture in the second column
     with col2:
-        st.subheader("Emoticon")
-        emoticon_data = generate_emoticon(emotion)
-        if emoticon_data:
-            image = Image.open(io.BytesIO(emoticon_data))
-            st.image(image, caption=f"{emotion.capitalize()} Emoticon", use_column_width=True)
+        st.subheader("Emoji Picture")
+
+        # Try to generate emoji picture using OpenAI API
+        emoji_data = generate_emoji_picture(emotion)
+        if emoji_data:
+            image = Image.open(io.BytesIO(emoji_data))
+            st.image(image, caption=f"{emotion.capitalize()} Emoji", use_column_width=True)
         else:
+            # Fallback to text emoji if image generation fails
             emotion_emojis = {
                 'happy': "😊", 'sad': "😢", 'angry': "😠",
                 'neutral': "😐", 'fear': "😨", 'disgust': "🤢", 'surprise': "😲"
             }
             st.markdown(f"<h1 style='text-align: center; font-size: 100px;'>{emotion_emojis.get(emotion, '❓')}</h1>", unsafe_allow_html=True)
+            st.caption("Fallback emoji (API unavailable)")
 
 def main():
     st.title("🎭 Speech Emotion Recognition")
-    st.write("Upload a WAV audio file to detect emotion")
+    st.write("Upload an audio file to detect emotion and generate an emoji picture")
 
+    # Initialize session state for storing results
+    if 'results' not in st.session_state:
+        st.session_state.results = []
+
+    # Sidebar with information
     with st.sidebar:
         st.header("About")
         st.info("""
-        This app recognizes emotions from speech using a neural network.
+        This app recognizes emotions from speech using a convolutional neural network and generates custom emoji pictures.
 
         Supported emotions:
-        - Happy
-        - Sad
-        - Angry
-        - Neutral
-        - Fear
-        - Disgust
-        - Surprise
+        - Happy 😊
+        - Sad 😢
+        - Angry 😠
+        - Neutral 😐
+        - Fear 😨
+        - Disgust 🤢
+        - Surprise 😲
         """)
+
         st.header("Instructions")
         st.write("""
         1. Upload a WAV audio file containing speech
         2. The app will process your audio and predict the emotion
+        3. A custom emoji picture will be generated to represent the emotion
+        4. Results will be saved for the session
         """)
 
+        st.header("API Key Configuration")
+        api_key_input = st.text_input("Enter OpenAI API Key (for emoji generation)", type="password")
+        if api_key_input:
+            os.environ["FYP_API_KEY"] = api_key_input
+            st.success("API Key set successfully!")
+        
+        st.info("💡 Tip: With an OpenAI API key, you'll get unique 3D emoji pictures generated for each emotion!")
+
+        # Add export results button in sidebar
+        if st.button("Export Results") and len(st.session_state.results) > 0:
+            export_results(st.session_state.results)
+
+    # Load the model
     model = load_model()
+
+    # Only proceed if model is loaded
     if model is None:
         st.warning("Please run fyp_test.py to create the model before using this app.")
         return
 
-    scaler = joblib.load('scaler.save')
+    # Try to load scaler - this is crucial for matching training preprocessing
+    scaler = None
+    try:
+        if os.path.exists('scaler.save'):
+            scaler = joblib.load('scaler.save')
+            st.success("✅ Scaler loaded successfully - features will be normalized properly!")
+        else:
+            st.error("❌ Scaler not found. Please ensure 'scaler.save' is in the same directory.")
+            st.warning("Without the scaler, predictions may be inaccurate.")
+    except Exception as e:
+        st.error(f"Could not load scaler: {e}")
 
-    uploaded_file = st.file_uploader("Upload your audio file", type=["wav"])
+    # File uploader - now accepting both WAV and MP3
+    uploaded_file = st.file_uploader("Upload your audio file", type=["wav", "mp3"], key="audio_uploader")
 
+    # Process uploaded file
     if uploaded_file is not None:
-        st.audio(uploaded_file, format='audio/wav')
+        # Display the audio player
+        st.audio(uploaded_file)
 
-        with tempfile.NamedTemporaryFile(suffix=".wav") as temp_audio:
-            temp_audio.write(uploaded_file.read())
-            temp_audio.flush()
+        # Generate a unique ID for this analysis
+        analysis_id = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            features = get_features(temp_audio.name)
-            features = scaler.transform(features)
-            process_features(features, model)
+        with st.spinner('Processing audio...'):
+            # Save the uploaded file to a temporary location
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{uploaded_file.name.split('.')[-1]}") as tmp_file:
+                tmp_file.write(uploaded_file.getbuffer())
+                temp_path = tmp_file.name
+
+            # Process the audio file
+            emotion, confidence, probabilities, labels = process_audio_file(temp_path, model, scaler)
+
+            # Clean up temporary file
+            os.unlink(temp_path)
+
+            if emotion:
+                # Display results
+                display_results(emotion, confidence, probabilities, labels)
+
+                # Save result to session state
+                result = {
+                    'id': analysis_id,
+                    'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    'filename': uploaded_file.name,
+                    'emotion': emotion,
+                    'confidence': confidence,
+                    'probabilities': {label: float(prob) for label, prob in zip(labels, probabilities)}
+                }
+                st.session_state.results.append(result)
+
+                # Reset the file uploader for next analysis
+                st.session_state.pop('audio_uploader')
+                st.experimental_rerun()
+            else:
+                st.error("Failed to process audio file.")
+
+    # Display previous results if available
+    if len(st.session_state.results) > 0:
+        st.header("Previous Analysis Results")
+
+        for i, result in enumerate(st.session_state.results):
+            with st.expander(f"Result #{i+1}: {result['filename']} - {result['emotion'].upper()} ({result['timestamp']})"):
+                st.write(f"**Emotion:** {result['emotion'].capitalize()}")
+                st.write(f"**Confidence:** {result['confidence']:.2%}")
+                st.write("**All Probabilities:**")
+                for label, prob in result['probabilities'].items():
+                    st.write(f"- {label.capitalize()}: {prob:.4f}")
+
+def export_results(results):
+    """Export session results to CSV"""
+    # Flatten the probabilities dictionary
+    flattened_results = []
+    for result in results:
+        flat_result = {
+            'id': result['id'],
+            'timestamp': result['timestamp'],
+            'filename': result['filename'],
+            'emotion': result['emotion'],
+            'confidence': result['confidence']
+        }
+        # Add probabilities as separate columns
+        for label, prob in result['probabilities'].items():
+            flat_result[f'prob_{label}'] = prob
+        flattened_results.append(flat_result)
+
+    # Convert to DataFrame
+    df = pd.DataFrame(flattened_results)
+
+    # Convert to CSV
+    csv = df.to_csv(index=False)
+
+    # Create download button
+    st.sidebar.download_button(
+        label="Download CSV",
+        data=csv,
+        file_name=f"emotion_analysis_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+        mime="text/csv"
+    )
+
+# For use in Colab
+def run_in_colab():
+    # Save this script as app.py
+    with open('app.py', 'w') as f:
+        f.write(open(__file__).read())
+
+    # Setup and run Streamlit
+    url = setup_colab_streamlit()
+    display.HTML(f'<a href="{url}" target="_blank">Open Streamlit App</a>')
 
 if __name__ == "__main__":
-    main()
+    # Check if running in Colab
+    try:
+        import google.colab
+        is_colab = True
+    except:
+        is_colab = False
+
+    if is_colab:
+        run_in_colab()
+    else:
+        main()
