@@ -5,7 +5,7 @@ librosa
 matplotlib
 plotly
 seaborn
-IPython==8.18.1
+IPython
 tensorflow==2.15.0
 scikit-learn
 requests
