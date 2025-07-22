@@ -1,0 +1,12 @@
+streamlit
+numpy
+pandas
+librosa
+matplotlib
+plotly
+seaborn
+IPython
+tensorflow
+scikit-learn
+requests
+Pillow
